@@ -1,0 +1,118 @@
+import numpy as np 
+import math
+import pandas as pd
+from sklearn.impute import SimpleImputer # used for handling missing data
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder # used for encoding categorical data
+from sklearn.preprocessing import StandardScaler  #for feature scaling
+from sklearn.model_selection import train_test_split # used for splitting training and testing data
+from sklearn.compose import ColumnTransformer
+from sklearn import preprocessing
+import matplotlib.pyplot as plt
+
+dataset = pd.read_csv('WGC_10000.csv') # to import the dataset into a variable
+
+#dataset.replace('', np.nan, inplace=True)#set all empty cells as np.nan
+
+dataset= dataset.dropna(axis=1, thresh= 1)
+dataset = dataset.dropna(axis=0, thresh= 4)
+#dataset_droppedrows = dataset
+
+#only_na = dataset_droppedrows[~dataset_droppedrows.index.isin(dataset_droppedrows.index)]
+
+#dataset_ip = dataset.fillna(dataset.interpolate())
+#dataset_ip.to_csv("datasett_ip.csv") #change to mean/median/interpolate based on what you want
+dataset = dataset.fillna(dataset.interpolate())
+
+#dataset_ip = dataset_ip.drop(dataset_ip.std()[dataset_ip.std() == 0].index.values, axis=1)#drop columns with 0 variance
+#dataset_ip.to_csv("datasett_ip.csv")
+
+dataset = dataset.loc[:, (dataset!= 0).any(axis=0)]#drop the two 0 valued columns
+
+dataset = dataset[dataset.astype('bool').mean(axis=1)>=0.25]#deletes all rows with 75% zeroes
+dataset_ip = dataset
+#----------------------------------------------------------------------------
+
+dataset.iloc[:,1:-1] = dataset.iloc[:,1:-1].apply(lambda x: (((x-x.min())*2)/(x.max()-x.min()))-1 , axis=0) #normalise data between 0 and 1
+coorinit = dataset.corr()
+# Create correlation matrix
+corr_matrix = dataset.corr().abs()
+
+# Select upper triangle of correlation matrix
+upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(np.bool))
+
+# Find index of feature columns with correlation greater than 0.95
+to_drop = [column for column in upper.columns if any(upper[column] > 0.95)]
+dataset.drop(dataset[to_drop], axis=1,inplace = True)
+#corr = dataset.corr()
+
+#out = np.where(dataset['FCCGLI510.PV'].diff() > 0, 1, 0)#make a boolean mask which assigns 0 for decline, 1 for increase
+#out[0] = 0
+#dataset.insert(18, 'YBool', out)#insert the boolean mask column
+
+datecolumn = dataset['DATE']
+lubelevel = dataset['FCCGLI510.PV']
+dataset.drop('DATE',axis = 1,inplace = True)
+
+deltas = dataset.diff().drop(0)
+slope = deltas['FCCGLI510.PV']/5
+dataset.insert(17, 'Slope', slope)
+
+dataset.drop('FCCGLI510.PV',axis = 1,inplace = True)
+
+dataset["Slope"][dataset["Slope"]>0] = np.NaN
+dataset = dataset.interpolate()
+dataset['Slope'] = dataset['Slope'].fillna(0)
+#dataset_ip = dataset
+#dataset_ip.to_csv("datasett_ip.csv")
+
+#------------------------------------------------------------------------------------------
+
+x= dataset.loc[:, dataset.columns != 'Slope']
+y = dataset['Slope']
+
+xTrain,xTest,yTrain,yTest = train_test_split(x,y,test_size = 0.3, random_state=35)
+
+from sklearn import linear_model
+import statsmodels.api as sm
+
+regr = linear_model.LinearRegression()
+regr.fit(xTrain, yTrain)
+
+#print('Intercept: \n', regr.intercept_)
+#print('Coefficients: \n', regr.coef_)
+print('Variance Score:', format(regr.score(xTrain, yTrain)))
+print('Variance Score Test:', format(regr.score(xTest, yTest)))
+
+# plot for residual error 
+  
+## setting plot style 
+plt.style.use('fivethirtyeight') 
+  
+## plotting residual errors in training data 
+plt.scatter(regr.predict(xTrain), regr.predict(xTrain) - yTrain, 
+            color = "green", s = 10, label = 'Train data') 
+  
+## plotting residual errors in test data 
+plt.scatter(regr.predict(xTest), regr.predict(xTest) - yTest, 
+            color = "blue", s = 10, label = 'Test data') 
+  
+## plotting line for zero residual error 
+plt.hlines(y = 0, xmin = 0, xmax = 50, linewidth = 2) 
+  
+## plotting legend 
+plt.legend(loc = 'upper right') 
+  
+## plot title 
+plt.title("Residual errors") 
+  
+## function to show plot 
+plt.show() 
+
+dataset.insert(0, 'DATE', datecolumn)
+
+x = sm.add_constant(x) # adding a constant
+ 
+model = sm.OLS(y, x).fit()
+predictions = model.predict(x) 
+ 
+print_model = model.summary()
